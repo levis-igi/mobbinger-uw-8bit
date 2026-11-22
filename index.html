@@ -1,0 +1,1865 @@
+<!DOCTYPE html>
+<html lang="pl" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MOBBINGER 8-BIT — Office RPG Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #09090b;
+      color: #fafafa;
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .font-pixel {
+      font-family: 'Press Start 2P', monospace;
+    }
+    .pixel-box {
+      box-shadow:
+        0 -4px 0 0 #3f3f46,
+        0 4px 0 0 #3f3f46,
+        -4px 0 0 0 #3f3f46,
+        4px 0 0 0 #3f3f46;
+    }
+    .pixel-box-pink {
+      box-shadow:
+        0 -4px 0 0 #ec4899,
+        0 4px 0 0 #ec4899,
+        -4px 0 0 0 #ec4899,
+        4px 0 0 0 #ec4899;
+    }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    @media print {
+      body {
+        background-color: #ffffff !important;
+        color: #111827 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-card {
+        background-color: #f9fafb !important;
+        border: 1px solid #d1d5db !important;
+        color: #111827 !important;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-50 antialiased selection:bg-pink-500 selection:text-white">
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef, useMemo } from 'https://esm.sh/react@18.3.1';
+    import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
+    import {
+      Flame, AlertTriangle, CheckCircle2, Users, Clock,
+      ArrowRight, RotateCcw, Sparkles, BarChart3,
+      Printer, Copy, Check, ChevronLeft, ChevronRight, Presentation,
+      Play, Share2, Gamepad2, MessageSquare, MapPin
+    } from 'https://esm.sh/lucide-react@0.454.0?deps=react@18.3.1';
+
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+    import {
+      getFirestore, doc, setDoc, getDoc, onSnapshot, collection,
+      serverTimestamp, updateDoc
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+    // Konfiguracja Firebase dla projektu mobbinger-uw
+    const firebaseConfig = {
+      apiKey: "AIzaSyDYus24NP3hHHDr5D1iXEc2vFQuRcgttEE",
+      authDomain: "mobbinger-uw.firebaseapp.com",
+      projectId: "mobbinger-uw",
+      storageBucket: "mobbinger-uw.firebasestorage.app",
+      messagingSenderId: "224394936150",
+      appId: "1:224394936150:web:dd72b736ac0eadd31560f7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const ROUND_DURATION_SECONDS = 300; // 5 minut (05:00)
+
+    const ANSWER_OPTIONS = [
+      {
+        id: 'ok',
+        label: 'OK',
+        shortLabel: 'OK',
+        emoji: '🟢',
+        subtitle: 'Zachowanie akceptowalne',
+        bgClass: 'bg-lime-400/15 border-lime-400/50 text-lime-300 hover:bg-lime-400/25',
+        badgeClass: 'bg-lime-400 text-zinc-950',
+        barColor: 'bg-lime-400'
+      },
+      {
+        id: 'red_flag',
+        label: 'RED FLAG',
+        shortLabel: 'Red Flag',
+        emoji: '🔴',
+        subtitle: 'Budzi niepokój / wymaga reakcji',
+        bgClass: 'bg-rose-500/15 border-rose-500/50 text-rose-300 hover:bg-rose-500/25',
+        badgeClass: 'bg-rose-500 text-white',
+        barColor: 'bg-rose-500'
+      },
+      {
+        id: 'need_context',
+        label: 'BRAK KONTEKSTU',
+        shortLabel: 'Brak kontekstu',
+        emoji: '🟡',
+        subtitle: 'Potrzebuję dodatkowych informacji',
+        bgClass: 'bg-amber-400/15 border-amber-400/50 text-amber-300 hover:bg-amber-400/25',
+        badgeClass: 'bg-amber-400 text-zinc-950',
+        barColor: 'bg-amber-400'
+      },
+      {
+        id: 'legal_violation',
+        label: 'MOŻLIWE NARUSZENIE PRAWA',
+        shortLabel: 'Naruszenie prawa',
+        emoji: '🟣',
+        subtitle: 'Mobbing, dyskryminacja lub molestowanie',
+        bgClass: 'bg-purple-500/15 border-purple-500/50 text-purple-300 hover:bg-purple-500/25',
+        badgeClass: 'bg-purple-500 text-white',
+        barColor: 'bg-purple-500'
+      }
+    ];
+
+    // 15 sytuacji z przypisanymi pozycjami NPC w 8-bitowym biurze (siatka 24x20 kafelków)
+    const SCENARIOS = [
+      {
+        id: 'card_1',
+        number: 1,
+        npcName: 'Nowy stażysta',
+        zone: 'Open Space',
+        x: 4, y: 4,
+        shirtColor: '#38bdf8',
+        hairColor: '#facc15',
+        title: '„To tylko ksywka”',
+        category: 'Granice i godność pracownika',
+        situation: 'W zespole wszyscy nazywają nowego pracownika „Księżniczką”, ponieważ zawsze bardzo elegancko się ubiera. Pracownik uśmiecha się, ale nie wiadomo, czy faktycznie akceptuje to przezwisko.',
+        legalTag: 'Godność pracownika (art. 11¹ KP) / Molestowanie (art. 18³ᵃ § 5 pkt 2 KP)',
+        explanation: 'Kluczowy jest brak kontekstu i perspektywa odbiorcy. Żartobliwa ksywka może być elementem integracji, jeśli obie strony ją akceptują. Jeżeli jednak narusza godność pracownika, wywołuje u niego dyskomfort lub ma podtekst stereotypizujący ze względu na płeć, a zespół kontynuuje ją mimo braku zgody – staje się zachowaniem nieakceptowalnym.'
+      },
+      {
+        id: 'card_2',
+        number: 2,
+        npcName: 'Menedżerka Anna',
+        zone: 'Sala 1:1',
+        x: 19, y: 4,
+        shirtColor: '#a855f7',
+        hairColor: '#1f2937',
+        title: '„Feedback czy atak?”',
+        category: 'Zarządzanie i ocena pracy',
+        situation: 'Menedżer podczas spotkania 1:1 informuje pracownika, że jego prezentacja dla klienta wymaga poprawy, wskazuje konkretne błędy merytoryczne i ustala nowy termin naniesienia zmian.',
+        legalTag: 'Uprawnienia kierownicze pracodawcy (art. 22 § 1 i art. 100 KP)',
+        explanation: 'Rzeczowa, merytoryczna krytyka wykonanej pracy oraz egzekwowanie obowiązków służbowych należą do podstawowych zadań przełożonego i same w sobie nie stanowią mobbingu ani przemocy psychicznej – o ile są przekazywane z poszanowaniem godności pracownika, bez upokarzania czy krzyku.'
+      },
+      {
+        id: 'card_3',
+        number: 3,
+        npcName: 'Grafik Kuba',
+        zone: 'Dział Social Media',
+        x: 8, y: 4,
+        shirtColor: '#f43f5e',
+        hairColor: '#78350f',
+        title: '„Firmowy mem”',
+        category: 'Cyberprzemoc i wyśmiewanie',
+        situation: 'Pracownicy regularnie publikują na firmowym czacie przerobione zdjęcia jednej koleżanki, wyśmiewając jej wygląd. Pomimo jej wyraźnego sprzeciwu zachowanie powtarza się od kilku tygodni.',
+        legalTag: 'Molestowanie (art. 18³ᵃ § 5 pkt 2 KP) / Mobbing (art. 94³ § 2 KP)',
+        explanation: 'Wyraźna czerwona flaga i wysokie ryzyko poważnego naruszenia prawa pracy. Publiczne, uporczywe ośmieszanie wyglądu mimo sprzeciwu narusza godność osobistą, tworzy wrogą i poniżającą atmosferę (molestowanie), a przy długotrwałym charakterze wypełnia przesłanki mobbingu.'
+      },
+      {
+        id: 'card_4',
+        number: 4,
+        npcName: 'Kolega z biurka',
+        zone: 'Open Space',
+        x: 4, y: 8,
+        shirtColor: '#4ade80',
+        hairColor: '#451a03',
+        title: '„Randka po pracy”',
+        category: 'Relacje prywatne w zespole',
+        situation: 'Współpracownik z tego samego działu raz zaprasza koleżankę na kawę po pracy. Ona uprzejmie odmawia, a on bez komentarza akceptuje odmowę i nigdy więcej nie ponawia zaproszenia.',
+        legalTag: 'Molestowanie seksualne (art. 18³ᵃ § 6 KP) — brak przesłanek',
+        explanation: 'Jednorazowe, kulturalne zaproszenie ze strony równorzędnego współpracownika połączone z pełnym poszanowaniem odmowy nie stanowi molestowania seksualnego ani naruszenia granic. Problem pojawia się dopiero wtedy, gdy zachowanie jest niepożądane i ponawiane mimo odmowy.'
+      },
+      {
+        id: 'card_5',
+        number: 5,
+        npcName: 'Rekruter Tomek',
+        zone: 'Pokój HR',
+        x: 19, y: 8,
+        shirtColor: '#ec4899',
+        hairColor: '#0f172a',
+        title: '„Nie zatrudniamy młodych matek”',
+        category: 'Rekrutacja i równe traktowanie',
+        situation: 'Rekruter odrzuca kandydatkę na stanowisko redaktorki wyłącznie dlatego, że ma małe dziecko i „na pewno będzie brać zwolnienia lekarskie”, mimo że spełnia ona wszystkie wymagania merytoryczne.',
+        legalTag: 'Zakaz dyskryminacji w zatrudnieniu (art. 18³ᵃ § 1 i art. 18³ᵇ § 1 KP)',
+        explanation: 'Klasyczny przykład bezpośredniej dyskryminacji w nawiązaniu stosunku pracy ze względu na płeć oraz rodzicielstwo. Zgodnie z Kodeksem pracy zasada równego traktowania obowiązuje już na etapie rekrutacji.'
+      },
+      {
+        id: 'card_6',
+        number: 6,
+        npcName: 'Starszy Redaktor',
+        zone: 'Kolegium Redakcyjne',
+        x: 11, y: 11,
+        shirtColor: '#fb923c',
+        hairColor: '#9ca3af',
+        title: '„Inside joke na kolegium”',
+        category: 'Kultura zespołu i inkluzywność',
+        situation: 'Starsi stażem redaktorzy podczas każdego zebrania rzucają hermetyczne żarty z dawnych imprez, z których śmieje się tylko wąska grupa. Nowi stażyści siedzą w ciszy i nie wiedzą, o co chodzi.',
+        legalTag: 'Zachowanie społecznie nieodpowiednie / ryzyko wykluczenia',
+        explanation: 'Same hermetyczne żarty nie są jeszcze mobbingiem ani złamaniem prawa, ale stanowią ważny sygnał ostrzegawczy (Red Flag) dla menedżera. Tworzą podział na „swoich” i „obcych” i utrudniają wdrożenie nowych osób.'
+      },
+      {
+        id: 'card_7',
+        number: 7,
+        npcName: 'Dyrektor Marek',
+        zone: 'Kuchnia / Ekspres',
+        x: 4, y: 15,
+        shirtColor: '#facc15',
+        hairColor: '#374151',
+        title: '„Pij albo nie awansujesz”',
+        category: 'Imprezy integracyjne',
+        situation: 'Podczas wyjazdu integracyjnego dyrektor programowy mówi głośno przy zespole do młodego dziennikarza, który nie pije alkoholu: „U nas w mediach kto nie pije z szefem, ten nie dostaje dobrych tematów”.',
+        legalTag: 'Nadużycie pozycji przełożonego / ryzyko nierównego traktowania',
+        explanation: 'Wyraźna czerwona flaga. Przełożony wykorzystuje swoją władzę i uzależnia rozwój zawodowy od spożywania alkoholu. To zachowanie wykluczające (np. osoby niepijące ze względów zdrowotnych lub światopoglądowych) i wymagające reakcji.'
+      },
+      {
+        id: 'card_8',
+        number: 8,
+        npcName: 'Wydawca Ola',
+        zone: 'Studio TV',
+        x: 19, y: 15,
+        shirtColor: '#2dd4bf',
+        hairColor: '#b45309',
+        title: '„Świetnie wyglądasz na wizji”',
+        category: 'Komentarze o wyglądzie',
+        situation: 'Wydawca programu mówi przed wejściem na żywo do prezenterki: „Super dzisiaj wyglądasz w tej marynarce, bardzo profesjonalnie przed kamerą”.',
+        legalTag: 'Kontekst relacji i granice komunikacji',
+        explanation: 'Krótki komplement dotyczący profesjonalnego stroju przed występem przed kamerą zazwyczaj mieści się w normach kulturowych w branży medialnej. Ocena zależy jednak od kontekstu: tonu głosu, częstotliwości uwag i reakcji odbiorcy.'
+      },
+      {
+        id: 'card_9',
+        number: 9,
+        npcName: 'Szef Działu',
+        zone: 'Kuchnia / Ekspres',
+        x: 8, y: 16,
+        shirtColor: '#818cf8',
+        hairColor: '#1e293b',
+        title: '„Bo dziewczyny lepiej ogarniają”',
+        category: 'Stereotypy dotyczące płci',
+        situation: 'Szef działu zawsze przydziela kobietom w zespole parzenie kawy dla gości, robienie notatek ze spotkań i zamawianie cateringu, argumentując: „Dziewczyny mają do tego naturalny dryg”.',
+        legalTag: 'Dyskryminacja pośrednia/bezpośrednia ze względu na płeć (art. 18³ᵃ KP)',
+        explanation: 'Przydzielanie gorzej ocenianych, pomocniczych zadań administracyjnych wyłącznie kobietom na podstawie stereotypów płciowych narusza zasadę równego traktowania w warunkach zatrudnienia.'
+      },
+      {
+        id: 'card_10',
+        number: 10,
+        npcName: 'Kierownik Jan',
+        zone: 'Kolegium Redakcyjne',
+        x: 14, y: 11,
+        shirtColor: '#e879f9',
+        hairColor: '#d1d5db',
+        title: '„Zetki nie znają życia”',
+        category: 'Różnice pokoleniowe',
+        situation: 'Podczas burzy mózgów 50-letni kierownik przerywa 23-letniej specjalistce od social mediów słowami: „Co ty możesz wiedzieć o odbiorcach, jak jeszcze mleko pod nosem masz”.',
+        legalTag: 'Naruszenie godności (art. 11¹ KP) / Dyskryminacja ze względu na wiek',
+        explanation: 'Wyraźna czerwona flaga — lekceważące podważanie kompetencji z powodu młodego wieku. Jeśli powtarza się regularnie i blokuje rozwój pracownika, może stanowić dyskryminację (ageizm) lub element mobbingu.'
+      },
+      {
+        id: 'card_11',
+        number: 11,
+        npcName: 'Dziennikarz Piotr',
+        zone: 'Korytarz Główny',
+        x: 12, y: 6,
+        shirtColor: '#34d399',
+        hairColor: '#713f12',
+        title: '„Nie damy rady z wózkiem”',
+        category: 'Niepełnosprawność i dostępność',
+        situation: 'Redakcja przenosi cotygodniowe zebrania do kawiarni na piętrze bez windy, mimo że jeden z dziennikarzy porusza się na wózku. Menedżer mówi: „Połączysz się zdalnie, nie zmienimy miejsca dla jednej osoby”.',
+        legalTag: 'Dyskryminacja ze względu na niepełnosprawność / brak racjonalnych usprawnień',
+        explanation: 'Wykluczanie pracownika z niepełnosprawnością ze spotkań zespołu przez brak dostępności architektonicznej i odmowę prostego usprawnienia narusza zasadę równego traktowania.'
+      },
+      {
+        id: 'card_12',
+        number: 12,
+        npcName: 'Kolega z kuchni',
+        zone: 'Strefa Chillout',
+        x: 12, y: 16,
+        shirtColor: '#fb7185',
+        hairColor: '#312e81',
+        title: '„Kto u was jest mężem?”',
+        category: 'Orientacja seksualna i prywatność',
+        situation: 'Podczas przerwy obiadowej współpracownik pyta otwarcie geja z zespołu: „A tak z ciekawości, kto w waszym związku jest kobietą, a kto mężczyzną?”.',
+        legalTag: 'Naruszenie godności i sfery prywatnej / Molestowanie (art. 18³ᵃ § 5 pkt 2 KP)',
+        explanation: 'Pytanie oparte na stereotypach, wkraczające w intymną sferę życia i naruszające godność pracownika. Liczy się skutek — wywołanie zażenowania i poczucia inności w miejscu pracy.'
+      },
+      {
+        id: 'card_13',
+        number: 13,
+        npcName: 'Praktykantka Maja',
+        zone: 'Kuchnia / Ekspres',
+        x: 4, y: 12,
+        shirtColor: '#fde047',
+        hairColor: '#854d0e',
+        title: '„Stażysta od wszystkiego”',
+        category: 'Stażystki i praktykanci',
+        situation: 'Bezpłatny praktykant na trzecim roku studiów przez cały miesiąc wyłącznie myje kubki po zespole, odbiera prywatne paczki przełożonego i biega po kanapki, nie otrzymując żadnych zadań związanych z mediami.',
+        legalTag: 'Naruszenie umowy o praktyki / nadużycie pozycji przełożonego',
+        explanation: 'Czerwona flaga i naruszenie zasad organizacyjnych oraz celu praktyk studenckich. Praktykant nie jest prywatnym asystentem szefa do spraw osobistych.'
+      },
+      {
+        id: 'card_14',
+        number: 14,
+        npcName: 'Redaktorka Ewa',
+        zone: 'Dział Online',
+        x: 15, y: 4,
+        shirtColor: '#60a5fa',
+        hairColor: '#7c2d12',
+        title: '„Zapomniany czat projektowy”',
+        category: 'Wykluczenie z komunikacji',
+        situation: 'Pracownik wraca z dwutygodniowego urlopu i odkrywa, że zespół założył nowy kanał komunikacji dla jego projektu bez niego, a on nie dostaje zaproszeń na poranne statusy.',
+        legalTag: 'Izolowanie pracownika (przesłanka mobbingu) vs błąd organizacyjny',
+        explanation: 'Brak kontekstu — konieczne jest szybkie wyjaśnienie. Może to być zwykłe niedopatrzenie po urlopie (błąd organizacyjny), ale celowe odcinanie od informacji to sygnał ostrzegawczy mobbingu.'
+      },
+      {
+        id: 'card_15',
+        number: 15,
+        npcName: 'Lider Zespołu',
+        zone: 'Strefa Remote',
+        x: 19, y: 12,
+        shirtColor: '#f87171',
+        hairColor: '#09090b',
+        title: '„Kamera i wiadomości o 22:30”',
+        category: 'Praca zdalna i presja czasu',
+        situation: 'Podczas pracy zdalnej lider zespołu codziennie wysyła zadania na komunikatorze po 22:00 z dopiskiem „na rano”, a w ciągu dnia wymaga ciągłego włączenia kamerki.',
+        legalTag: 'Czas pracy i prawo do odpoczynku (art. 128 i 132 KP) / Prywatność (art. 11¹ KP)',
+        explanation: 'Wyraźna czerwona flaga i naruszenie przepisów o czasie pracy oraz prywatności. Stały nadzór kamerą w domu oraz regularne zlecanie pracy późnym wieczorem narusza dobowy odpoczynek (min. 11h).'
+      }
+    ];
+
+    // Mapa biura 24x20 (0 = podłoga, 1 = ściana, 2 = biurko/mebel, 3 = dywan/strefa)
+    const MAP_COLS = 24;
+    const MAP_ROWS = 20;
+
+    function buildOfficeMap() {
+      const grid = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(0));
+
+      // Zewnętrzne ściany
+      for (let x = 0; x < MAP_COLS; x++) {
+        grid[0][x] = 1;
+        grid[MAP_ROWS - 1][x] = 1;
+      }
+      for (let y = 0; y < MAP_ROWS; y++) {
+        grid[y][0] = 1;
+        grid[y][MAP_COLS - 1] = 1;
+      }
+
+      // Ścianki działowe pokojów z szerokimi przejściami (żeby łatwo chodzić na telefonie)
+      // Lewy górny pokój (Open Space)
+      for (let y = 1; y <= 6; y++) grid[y][10] = 1;
+      // Prawy górny pokój (Sala 1:1 / HR)
+      for (let y = 1; y <= 6; y++) grid[y][17] = 1;
+
+      // Lewy dolny pokój (Kuchnia)
+      for (let x = 1; x <= 6; x++) grid[13][x] = 1;
+      // Prawy dolny pokój (Studio TV)
+      for (let x = 17; x <= 22; x++) grid[13][x] = 1;
+
+      // Biurka i stoły (kolizja = 2)
+      const desks = [
+        [3, 4], [7, 4], [3, 8],
+        [14, 4], [18, 4], [18, 8],
+        [11, 10], [12, 10], [13, 10], [14, 10], // Stół na kolegium
+        [3, 15], [7, 16], [18, 15], [18, 12]
+      ];
+      desks.forEach(([dx, dy]) => {
+        if (grid[dy] && grid[dy][dx] === 0) {
+          grid[dy][dx] = 2;
+        }
+      });
+
+      // Dywan na środku (strefa kolegium / chillout)
+      for (let y = 9; y <= 13; y++) {
+        for (let x = 10; x <= 15; x++) {
+          if (grid[y][x] === 0) grid[y][x] = 3;
+        }
+      }
+
+      return grid;
+    }
+
+    const OFFICE_GRID = buildOfficeMap();
+
+    function isTileWalkable(tx, ty) {
+      if (tx < 1 || ty < 1 || tx >= MAP_COLS - 1 || ty >= MAP_ROWS - 1) return false;
+      const cell = OFFICE_GRID[ty][tx];
+      if (cell === 1 || cell === 2) return false;
+      // Sprawdź czy nie wchodzimy dokładnie na kafelek NPC
+      const hitNpc = SCENARIOS.some((s) => s.x === tx && s.y === ty);
+      return !hitNpc;
+    }
+
+    function generateSessionCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    }
+
+    function formatTime(seconds) {
+      const s = Math.max(0, Math.floor(seconds));
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function safeUpdateUrlParams(paramsObj) {
+      try {
+        if (window.location.protocol === 'blob:' || window.location.protocol === 'about:') return;
+        const url = new URL(window.location.href);
+        Object.entries(paramsObj).forEach(([key, val]) => {
+          if (val === null || val === undefined) url.searchParams.delete(key);
+          else url.searchParams.set(key, val);
+        });
+        window.history.replaceState({}, '', url.toString());
+      } catch (e) {}
+    }
+
+    function getCleanJoinUrl(code) {
+      try {
+        if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+          return `${window.location.origin}${window.location.pathname}?session=${code}`;
+        }
+      } catch (e) {}
+      return `Kod sesji: ${code}`;
+    }
+
+    // =========================================================================
+    // KOMPONENT 8-BITOWEGO BIURA (CANVAS + STEROWANIE DOTYKOWE / D-PAD)
+    // =========================================================================
+    function Office8BitGame({
+      myAnswers,
+      remainingSeconds,
+      sessionCode,
+      activeDialogScenario,
+      setActiveDialogScenario,
+      revealedFeedback,
+      onSelectAnswer,
+      onCloseFeedback
+    }) {
+      const canvasRef = useRef(null);
+      const [playerPos, setPlayerPos] = useState({ x: 12, y: 8 });
+      const [playerDir, setPlayerDir] = useState('down');
+      const [walkFrame, setWalkFrame] = useState(0);
+      const [autoTarget, setAutoTarget] = useState(null);
+      const playerPosRef = useRef({ x: 12, y: 8 });
+
+      useEffect(() => {
+        playerPosRef.current = playerPos;
+      }, [playerPos]);
+
+      // Znajdź NPC obok gracza (odległość Manhattan <= 1)
+      const nearbyScenario = useMemo(() => {
+        return SCENARIOS.find((s) => {
+          const dist = Math.abs(s.x - playerPos.x) + Math.abs(s.y - playerPos.y);
+          return dist <= 1;
+        }) || null;
+      }, [playerPos]);
+
+      const moveStep = (dx, dy, dirName) => {
+        if (activeDialogScenario || revealedFeedback) return;
+        setPlayerDir(dirName);
+        setWalkFrame((f) => (f + 1) % 2);
+        const nx = playerPosRef.current.x + dx;
+        const ny = playerPosRef.current.y + dy;
+
+        // Jeśli weszliśmy w NPC, otwórz rozmowę!
+        const npcAtTarget = SCENARIOS.find((s) => s.x === nx && s.y === ny);
+        if (npcAtTarget) {
+          setAutoTarget(null);
+          setActiveDialogScenario(npcAtTarget);
+          return;
+        }
+
+        if (isTileWalkable(nx, ny)) {
+          setPlayerPos({ x: nx, y: ny });
+        } else {
+          setAutoTarget(null);
+        }
+      };
+
+      // Automatyczne podchodzenie po dotknięciu ekranu palcem
+      useEffect(() => {
+        if (!autoTarget || activeDialogScenario || revealedFeedback) return;
+        const timer = setInterval(() => {
+          const cur = playerPosRef.current;
+          const dx = autoTarget.x - cur.x;
+          const dy = autoTarget.y - cur.y;
+
+          if (dx === 0 && dy === 0) {
+            if (autoTarget.openNpc) {
+              setActiveDialogScenario(autoTarget.openNpc);
+            }
+            setAutoTarget(null);
+            return;
+          }
+
+          // Wybierz krok w stronę celu
+          let stepX = 0;
+          let stepY = 0;
+          let dir = 'down';
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            stepX = dx > 0 ? 1 : -1;
+            dir = dx > 0 ? 'right' : 'left';
+          } else {
+            stepY = dy > 0 ? 1 : -1;
+            dir = dy > 0 ? 'down' : 'up';
+          }
+
+          const nextX = cur.x + stepX;
+          const nextY = cur.y + stepY;
+
+          // Jeśli obok celu jest NPC i to jego kliknęliśmy
+          if (autoTarget.openNpc && nextX === autoTarget.openNpc.x && nextY === autoTarget.openNpc.y) {
+            setActiveDialogScenario(autoTarget.openNpc);
+            setAutoTarget(null);
+            return;
+          }
+
+          if (isTileWalkable(nextX, nextY)) {
+            setPlayerDir(dir);
+            setWalkFrame((f) => (f + 1) % 2);
+            setPlayerPos({ x: nextX, y: nextY });
+          } else if (stepX !== 0 && dy !== 0 && isTileWalkable(cur.x, cur.y + (dy > 0 ? 1 : -1))) {
+            const altY = dy > 0 ? 1 : -1;
+            setPlayerDir(altY > 0 ? 'down' : 'up');
+            setPlayerPos({ x: cur.x, y: cur.y + altY });
+          } else if (stepY !== 0 && dx !== 0 && isTileWalkable(cur.x + (dx > 0 ? 1 : -1), cur.y)) {
+            const altX = dx > 0 ? 1 : -1;
+            setPlayerDir(altX > 0 ? 'right' : 'left');
+            setPlayerPos({ x: cur.x + altX, y: cur.y });
+          } else {
+            setAutoTarget(null);
+          }
+        }, 125);
+
+        return () => clearInterval(timer);
+      }, [autoTarget, activeDialogScenario, revealedFeedback]);
+
+      // Obsługa klawiatury (WASD / Strzałki / Spacja) dla osób grających na laptopie
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (activeDialogScenario || revealedFeedback) return;
+          if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+            e.preventDefault();
+            setAutoTarget(null);
+            moveStep(0, -1, 'up');
+          } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+            e.preventDefault();
+            setAutoTarget(null);
+            moveStep(0, 1, 'down');
+          } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+            e.preventDefault();
+            setAutoTarget(null);
+            moveStep(-1, 0, 'left');
+          } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+            e.preventDefault();
+            setAutoTarget(null);
+            moveStep(1, 0, 'right');
+          } else if ((e.key === 'Enter' || e.key === ' ') && nearbyScenario) {
+            e.preventDefault();
+            setActiveDialogScenario(nearbyScenario);
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [activeDialogScenario, revealedFeedback, nearbyScenario]);
+
+      // Rysowanie 8-bitowego świata na Canvasie
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const TILE = 36;
+
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        const viewW = rect.width;
+        const viewH = rect.height;
+
+        // Kamera wyśrodkowana na graczu
+        const camX = Math.round(playerPos.x * TILE + TILE / 2 - viewW / 2);
+        const camY = Math.round(playerPos.y * TILE + TILE / 2 - viewH / 2);
+
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(0, 0, viewW, viewH);
+
+        ctx.save();
+        ctx.translate(-camX, -camY);
+
+        // Rysuj kafelki podłogi, ścian i biurek
+        for (let y = 0; y < MAP_ROWS; y++) {
+          for (let x = 0; x < MAP_COLS; x++) {
+            const px = x * TILE;
+            const py = y * TILE;
+            const cell = OFFICE_GRID[y][x];
+
+            if (cell === 1) {
+              // Ściana 8-bit
+              ctx.fillStyle = '#27272a';
+              ctx.fillRect(px, py, TILE, TILE);
+              ctx.fillStyle = '#3f3f46';
+              ctx.fillRect(px + 2, py + 2, TILE - 4, 8);
+              ctx.strokeStyle = '#18181b';
+              ctx.strokeRect(px, py, TILE, TILE);
+            } else if (cell === 3) {
+              // Fioletowy dywan w strefie kolegium
+              ctx.fillStyle = '#2e1065';
+              ctx.fillRect(px, py, TILE, TILE);
+              ctx.fillStyle = '#3b0764';
+              ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+            } else {
+              // Szachownica podłogi biurowej
+              ctx.fillStyle = (x + y) % 2 === 0 ? '#18181b' : '#1f1f23';
+              ctx.fillRect(px, py, TILE, TILE);
+            }
+
+            if (cell === 2) {
+              // Biurko z monitorem
+              ctx.fillStyle = '#78350f';
+              ctx.fillRect(px + 3, py + 6, TILE - 6, TILE - 10);
+              ctx.fillStyle = '#92400e';
+              ctx.fillRect(px + 5, py + 8, TILE - 10, TILE - 16);
+              // Monitor
+              ctx.fillStyle = '#38bdf8';
+              ctx.fillRect(px + 11, py + 4, 14, 8);
+              ctx.fillStyle = '#0284c7';
+              ctx.fillRect(px + 13, py + 6, 10, 4);
+            }
+          }
+        }
+
+        // Etykiety stref w biurze
+        ctx.font = 'bold 9px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.45)';
+        ctx.fillText('OPEN SPACE', 5.5 * TILE, 2.2 * TILE);
+        ctx.fillText('SALA 1:1 / HR', 20.5 * TILE, 2.2 * TILE);
+        ctx.fillText('KOLEGIUM', 12.5 * TILE, 9.6 * TILE);
+        ctx.fillText('KUCHNIA', 3.5 * TILE, 14.3 * TILE);
+        ctx.fillText('STUDIO TV', 20.5 * TILE, 14.3 * TILE);
+
+        // Rysuj cel automatycznego podejścia (jeśli kliknięto na mapie)
+        if (autoTarget) {
+          ctx.strokeStyle = '#a3e635';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(autoTarget.x * TILE + 6, autoTarget.y * TILE + 6, TILE - 12, TILE - 12);
+        }
+
+        // Funkcja rysująca 8-bitowego ludzika
+        const drawCharacter = (gx, gy, shirt, hair, isPlayer) => {
+          const px = gx * TILE;
+          const py = gy * TILE;
+          const bounce = isPlayer && walkFrame === 1 ? -2 : 0;
+
+          // Cień
+          ctx.fillStyle = 'rgba(0,0,0,0.45)';
+          ctx.fillRect(px + 8, py + 28, 20, 5);
+
+          // Nogi
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 11, py + 23, 5, 7);
+          ctx.fillRect(px + 20, py + 23, 5, 7);
+
+          // Tułów (koszulka)
+          ctx.fillStyle = shirt;
+          ctx.fillRect(px + 9, py + 13 + bounce, 18, 11);
+
+          // Głowa
+          ctx.fillStyle = '#fed7aa';
+          ctx.fillRect(px + 10, py + 4 + bounce, 16, 10);
+
+          // Włosy
+          ctx.fillStyle = hair;
+          ctx.fillRect(px + 10, py + 2 + bounce, 16, 4);
+
+          // Oczy
+          ctx.fillStyle = '#09090b';
+          ctx.fillRect(px + 13, py + 8 + bounce, 2, 2);
+          ctx.fillRect(px + 21, py + 8 + bounce, 2, 2);
+        };
+
+        // Rysuj 15 współpracowników (NPC)
+        SCENARIOS.forEach((sc) => {
+          drawCharacter(sc.x, sc.y, sc.shirtColor, sc.hairColor, false);
+
+          const isAnswered = Boolean(myAnswers[sc.id]);
+          const px = sc.x * TILE + TILE / 2;
+          const py = sc.y * TILE - 6;
+
+          // Dymek nad głową NPC (! lub ✓)
+          ctx.fillStyle = isAnswered ? '#a3e635' : '#ec4899';
+          ctx.fillRect(px - 9, py - 14, 18, 14);
+          ctx.fillStyle = '#09090b';
+          ctx.font = 'bold 10px "Press Start 2P", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(isAnswered ? '✓' : '!', px + 1, py - 3);
+        });
+
+        // Rysuj postać gracza (Student UW)
+        drawCharacter(playerPos.x, playerPos.y, '#a3e635', '#ec4899', true);
+
+        // Podpis "TY" nad graczem
+        ctx.fillStyle = '#a3e635';
+        ctx.font = 'bold 8px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('TY', playerPos.x * TILE + TILE / 2, playerPos.y * TILE - 4);
+
+        ctx.restore();
+      }, [playerPos, walkFrame, myAnswers, autoTarget]);
+
+      // Kliknięcie / dotknięcie mapy na telefonie -> podejście do wskazanego miejsca lub NPC
+      const handleCanvasTap = (e) => {
+        if (activeDialogScenario || revealedFeedback) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const TILE = 36;
+        const camX = Math.round(playerPos.x * TILE + TILE / 2 - rect.width / 2);
+        const camY = Math.round(playerPos.y * TILE + TILE / 2 - rect.height / 2);
+
+        const clickX = e.clientX - rect.left + camX;
+        const clickY = e.clientY - rect.top + camY;
+
+        const tileX = Math.floor(clickX / TILE);
+        const tileY = Math.floor(clickY / TILE);
+
+        // Sprawdź czy kliknięto bezpośrednio w NPC
+        const clickedNpc = SCENARIOS.find((s) => s.x === tileX && s.y === tileY);
+        if (clickedNpc) {
+          const dist = Math.abs(clickedNpc.x - playerPos.x) + Math.abs(clickedNpc.y - playerPos.y);
+          if (dist <= 1) {
+            setActiveDialogScenario(clickedNpc);
+            return;
+          }
+          // Znajdź wolny kafelek obok NPC
+          const neighbors = [
+            { x: clickedNpc.x, y: clickedNpc.y + 1 },
+            { x: clickedNpc.x, y: clickedNpc.y - 1 },
+            { x: clickedNpc.x - 1, y: clickedNpc.y },
+            { x: clickedNpc.x + 1, y: clickedNpc.y }
+          ].filter((n) => isTileWalkable(n.x, n.y));
+
+          if (neighbors.length > 0) {
+            neighbors.sort(
+              (a, b) =>
+                Math.abs(a.x - playerPos.x) + Math.abs(a.y - playerPos.y) -
+                (Math.abs(b.x - playerPos.x) + Math.abs(b.y - playerPos.y))
+            );
+            setAutoTarget({ x: neighbors[0].x, y: neighbors[0].y, openNpc: clickedNpc });
+          }
+          return;
+        }
+
+        if (isTileWalkable(tileX, tileY)) {
+          setAutoTarget({ x: tileX, y: tileY, openNpc: null });
+        }
+      };
+
+      const answeredCount = Object.keys(myAnswers).length;
+
+      return (
+        <div className="fixed inset-0 bg-zinc-950 flex flex-col justify-between overflow-hidden">
+          {/* Górny HUD w stylu 8-bit */}
+          <header className="z-20 bg-zinc-900/95 border-b-2 border-zinc-800 px-3 py-2.5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-pixel text-[11px] sm:text-xs text-pink-400">MOBBINGER</span>
+              <span className="px-2 py-0.5 rounded bg-zinc-950 border border-zinc-700 font-pixel text-[10px] text-lime-400">
+                {answeredCount}/{SCENARIOS.length}
+              </span>
+            </div>
+
+            <div className="text-[11px] text-zinc-400 hidden sm:block">
+              Podejdź do postaci z <span className="text-pink-400 font-bold">[!]</span> lub dotknij ją na mapie
+            </div>
+
+            <div
+              className={`px-3 py-1 rounded border font-pixel text-xs flex items-center gap-1.5 ${
+                remainingSeconds <= 30
+                  ? 'bg-rose-500/20 border-rose-500 text-rose-300 animate-pulse'
+                  : 'bg-zinc-950 border-lime-400/50 text-lime-400'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              {formatTime(remainingSeconds)}
+            </div>
+          </header>
+
+          {/* Obszar gry 8-Bit Canvas */}
+          <div className="relative flex-1 w-full bg-zinc-950">
+            <canvas
+              ref={canvasRef}
+              onClick={handleCanvasTap}
+              className="w-full h-full block cursor-pointer"
+            />
+
+            {/* Podpowiedź na górze mapy */}
+            <div className="absolute top-3 left-3 right-3 pointer-events-none flex justify-center">
+              <div className="px-3 py-1.5 rounded-full bg-zinc-950/85 border border-zinc-800 text-[11px] text-zinc-300 flex items-center gap-1.5 shadow-lg">
+                <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                <span>Dotknij postaci na mapie lub użyj strzałek, aby podejść</span>
+              </div>
+            </div>
+
+            {/* Baner interakcji, gdy gracz stoi obok NPC */}
+            {nearbyScenario && !activeDialogScenario && !revealedFeedback && (
+              <div className="absolute top-14 left-4 right-4 z-10 flex justify-center">
+                <button
+                  onClick={() => setActiveDialogScenario(nearbyScenario)}
+                  className="px-4 py-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs sm:text-sm shadow-xl border-2 border-pink-300 flex items-center gap-2 animate-bounce"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Porozmawiaj: {nearbyScenario.npcName} ({nearbyScenario.title})
+                </button>
+              </div>
+            )}
+
+            {/* Kontroler mobilny D-Pad + Przycisk Akcji A */}
+            <div className="absolute bottom-4 left-4 right-4 z-10 flex items-end justify-between pointer-events-none">
+              {/* Lewy dolny róg: Krzyżak D-Pad */}
+              <div className="grid grid-cols-3 gap-1.5 w-36 h-36 pointer-events-auto opacity-90">
+                <div />
+                <button
+                  onPointerDown={() => { setAutoTarget(null); moveStep(0, -1, 'up'); }}
+                  className="rounded-xl bg-zinc-900/90 active:bg-pink-500 border-2 border-zinc-700 flex items-center justify-center font-pixel text-sm text-white shadow-lg"
+                >
+                  ▲
+                </button>
+                <div />
+                <button
+                  onPointerDown={() => { setAutoTarget(null); moveStep(-1, 0, 'left'); }}
+                  className="rounded-xl bg-zinc-900/90 active:bg-pink-500 border-2 border-zinc-700 flex items-center justify-center font-pixel text-sm text-white shadow-lg"
+                >
+                  ◀
+                </button>
+                <div className="rounded-xl bg-zinc-950/60 border border-zinc-800 flex items-center justify-center">
+                  <div className="w-2 h-2 rounded-full bg-zinc-600" />
+                </div>
+                <button
+                  onPointerDown={() => { setAutoTarget(null); moveStep(1, 0, 'right'); }}
+                  className="rounded-xl bg-zinc-900/90 active:bg-pink-500 border-2 border-zinc-700 flex items-center justify-center font-pixel text-sm text-white shadow-lg"
+                >
+                  ▶
+                </button>
+                <div />
+                <button
+                  onPointerDown={() => { setAutoTarget(null); moveStep(0, 1, 'down'); }}
+                  className="rounded-xl bg-zinc-900/90 active:bg-pink-500 border-2 border-zinc-700 flex items-center justify-center font-pixel text-sm text-white shadow-lg"
+                >
+                  ▼
+                </button>
+                <div />
+              </div>
+
+              {/* Prawy dolny róg: Przycisk Akcji A */}
+              <div className="pointer-events-auto flex flex-col items-end gap-2">
+                <button
+                  disabled={!nearbyScenario}
+                  onClick={() => nearbyScenario && setActiveDialogScenario(nearbyScenario)}
+                  className={`w-16 h-16 rounded-full border-4 font-pixel text-base flex items-center justify-center shadow-2xl transition active:scale-90 ${
+                    nearbyScenario
+                      ? 'bg-pink-500 border-pink-200 text-white animate-pulse'
+                      : 'bg-zinc-900/80 border-zinc-700 text-zinc-600'
+                  }`}
+                >
+                  A
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ================================================================= */}
+          {/* OKNO DIALOGOWE RPG (SYTUACJA W BIURZE + 4 OPCJE OCENY)            */}
+          {/* ================================================================= */}
+          {activeDialogScenario && !revealedFeedback && (
+            <div className="fixed inset-0 z-40 bg-zinc-950/85 backdrop-blur-sm p-4 flex items-end sm:items-center justify-center">
+              <div className="max-w-lg w-full bg-zinc-900 border-2 border-pink-500 rounded-2xl p-5 sm:p-6 space-y-4 shadow-2xl">
+                <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                  <div>
+                    <div className="font-pixel text-[10px] text-pink-400 uppercase">
+                      {activeDialogScenario.zone} • #{activeDialogScenario.number}/15
+                    </div>
+                    <div className="font-bold text-base text-white mt-1">
+                      {activeDialogScenario.npcName}: {activeDialogScenario.title}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveDialogScenario(null)}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-400 text-xs font-bold"
+                  >
+                    Odejdź ✕
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base text-zinc-100 leading-relaxed">
+                  „{activeDialogScenario.situation}”
+                </div>
+
+                {myAnswers[activeDialogScenario.id] ? (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-xl bg-lime-400/15 border border-lime-400/40 text-lime-300 text-xs font-semibold">
+                      Już oceniłeś tę sytuację! Wybrano:{' '}
+                      <strong>
+                        {ANSWER_OPTIONS.find((o) => o.id === myAnswers[activeDialogScenario.id])?.label}
+                      </strong>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 leading-relaxed">
+                      <strong className="text-purple-300 block mb-1">{activeDialogScenario.legalTag}</strong>
+                      {activeDialogScenario.explanation}
+                    </div>
+                    <button
+                      onClick={() => setActiveDialogScenario(null)}
+                      className="w-full py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-sm"
+                    >
+                      WRÓĆ DO BIURA
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                    {ANSWER_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => onSelectAnswer(activeDialogScenario, opt.id)}
+                        className={`p-3 rounded-xl border text-left transition active:scale-95 ${opt.bgClass}`}
+                      >
+                        <div className="font-black text-xs sm:text-sm flex items-center gap-1.5">
+                          <span>{opt.emoji}</span> {opt.label}
+                        </div>
+                        <div className="text-[11px] opacity-80 mt-0.5">{opt.subtitle}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* OKNO WYJAŚNIENIA PO DOKONANIU WYBORU                              */}
+          {/* ================================================================= */}
+          {revealedFeedback && (
+            <div className="fixed inset-0 z-50 bg-zinc-950/90 backdrop-blur-sm p-4 flex items-end sm:items-center justify-center">
+              <div className="max-w-lg w-full bg-zinc-900 border-2 border-lime-400 rounded-2xl p-5 sm:p-6 space-y-4 shadow-2xl">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-pixel text-[10px] text-zinc-400">TWÓJ WYBÓR:</span>
+                  {(() => {
+                    const chosen = ANSWER_OPTIONS.find((o) => o.id === revealedFeedback.chosenAnswerId);
+                    return chosen ? (
+                      <span className={`px-3 py-1 rounded-full text-xs font-black ${chosen.badgeClass}`}>
+                        {chosen.emoji} {chosen.label}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+
+                <div>
+                  <h3 className="font-black text-lg text-white">{revealedFeedback.scenario.title}</h3>
+                  <div className="text-xs font-semibold text-purple-400 mt-0.5">
+                    {revealedFeedback.scenario.legalTag}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs sm:text-sm text-zinc-200 leading-relaxed">
+                  {revealedFeedback.scenario.explanation}
+                </div>
+
+                <button
+                  onClick={onCloseFeedback}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-lime-400 to-emerald-400 text-zinc-950 font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition"
+                >
+                  IDŹ DALEJ PO BIURZE ({Object.keys(myAnswers).length}/{SCENARIOS.length})
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // GŁÓWNA APLIKACJA MOBBINGER (SESJE WIELOOSOBOWE + TIMER + RAPORT GRUPY)
+    // =========================================================================
+    function App() {
+      const [user, setUser] = useState(null);
+      const [authError, setAuthError] = useState(null);
+
+      const [role, setRole] = useState('landing'); // 'landing' | 'host' | 'participant'
+      const [sessionCode, setSessionCode] = useState('');
+      const [joinInput, setJoinInput] = useState('');
+      const [sessionData, setSessionData] = useState(null);
+      const [participantsMap, setParticipantsMap] = useState({});
+      const [loadingAction, setLoadingAction] = useState(false);
+      const [errorMessage, setErrorMessage] = useState('');
+
+      // Stan gry uczestnika
+      const [myAnswers, setMyAnswers] = useState({});
+      const [activeDialogScenario, setActiveDialogScenario] = useState(null);
+      const [revealedFeedback, setRevealedFeedback] = useState(null);
+
+      // Zegar serwerowy
+      const [remainingSeconds, setRemainingSeconds] = useState(ROUND_DURATION_SECONDS);
+
+      // Panel prowadzącego / raport
+      const [spotlightScenarioId, setSpotlightScenarioId] = useState(null);
+      const [selectedReportScenarioIndex, setSelectedReportScenarioIndex] = useState(0);
+      const [copiedLink, setCopiedLink] = useState(false);
+
+      useEffect(() => {
+        const unsub = onAuthStateChanged(auth, (u) => {
+          if (u) {
+            setUser(u);
+            setAuthError(null);
+          }
+        });
+        signInAnonymously(auth).catch((err) => {
+          setAuthError(`Błąd autoryzacji anonimowej (${err.code || err.message}). Włącz metodę Anonymous w konsoli Firebase.`);
+        });
+        return () => unsub();
+      }, []);
+
+      useEffect(() => {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const codeFromUrl = params.get('session');
+          const modeFromUrl = params.get('mode');
+          if (codeFromUrl) {
+            const cleanCode = codeFromUrl.trim().toUpperCase();
+            setJoinInput(cleanCode);
+            setSessionCode(cleanCode);
+            setRole(modeFromUrl === 'host' ? 'host' : 'participant');
+          }
+        } catch (e) {}
+      }, []);
+
+      useEffect(() => {
+        if (!sessionCode) return;
+        const sessionRef = doc(db, 'sessions', sessionCode);
+        const unsubSession = onSnapshot(sessionRef, (snap) => {
+          if (snap.exists()) {
+            setSessionData({ id: snap.id, ...snap.data() });
+            setErrorMessage('');
+          } else {
+            setErrorMessage(`Nie znaleziono sesji o kodzie ${sessionCode}.`);
+            setSessionData(null);
+          }
+        }, (err) => {
+          setErrorMessage(`Błąd połączenia z bazą mobbinger-uw: ${err.message}`);
+        });
+
+        const participantsRef = collection(db, 'sessions', sessionCode, 'participants');
+        const unsubParticipants = onSnapshot(participantsRef, (snap) => {
+          const map = {};
+          snap.forEach((d) => {
+            map[d.id] = d.data();
+          });
+          setParticipantsMap(map);
+        });
+
+        return () => {
+          unsubSession();
+          unsubParticipants();
+        };
+      }, [sessionCode]);
+
+      useEffect(() => {
+        if (role !== 'participant' || !sessionCode || !user || !sessionData) return;
+        const pRef = doc(db, 'sessions', sessionCode, 'participants', user.uid);
+        getDoc(pRef).then((snap) => {
+          if (snap.exists()) {
+            setMyAnswers(snap.data().answers || {});
+          } else {
+            setDoc(pRef, {
+              joinedAt: serverTimestamp(),
+              answers: {}
+            }, { merge: true }).catch(console.error);
+          }
+        });
+      }, [role, sessionCode, user, Boolean(sessionData)]);
+
+      useEffect(() => {
+        if (!sessionData) return;
+        const updateClock = () => {
+          if (sessionData.status === 'lobby') {
+            setRemainingSeconds(ROUND_DURATION_SECONDS);
+            return;
+          }
+          if (sessionData.status === 'finished') {
+            setRemainingSeconds(0);
+            return;
+          }
+          if (sessionData.status === 'active' && sessionData.endsAtMillis) {
+            const diffMs = sessionData.endsAtMillis - Date.now();
+            const secs = Math.max(0, Math.ceil(diffMs / 1000));
+            setRemainingSeconds(secs);
+            if (secs <= 0 && role === 'host' && sessionData.status === 'active') {
+              updateDoc(doc(db, 'sessions', sessionCode), { status: 'finished' }).catch(() => {});
+            }
+          }
+        };
+        updateClock();
+        const interval = setInterval(updateClock, 250);
+        return () => clearInterval(interval);
+      }, [sessionData, role, sessionCode]);
+
+      const isRoundFinished = useMemo(() => {
+        if (!sessionData) return false;
+        if (sessionData.status === 'finished') return true;
+        if (sessionData.status === 'active' && sessionData.endsAtMillis && Date.now() >= sessionData.endsAtMillis) {
+          return true;
+        }
+        return false;
+      }, [sessionData, remainingSeconds]);
+
+      const handleCreateSession = async () => {
+        if (!user) {
+          setErrorMessage(authError || 'Trwa łączenie z bazą Firebase...');
+          return;
+        }
+        setLoadingAction(true);
+        setErrorMessage('');
+        try {
+          const newCode = generateSessionCode();
+          await setDoc(doc(db, 'sessions', newCode), {
+            code: newCode,
+            hostUid: user.uid,
+            status: 'lobby',
+            durationSeconds: ROUND_DURATION_SECONDS,
+            createdAt: serverTimestamp(),
+            startedAtMillis: null,
+            endsAtMillis: null
+          });
+          setSessionCode(newCode);
+          setRole('host');
+          safeUpdateUrlParams({ session: newCode, mode: 'host' });
+        } catch (err) {
+          setErrorMessage(`Nie udało się utworzyć sesji: ${err.message}`);
+        } finally {
+          setLoadingAction(false);
+        }
+      };
+
+      const handleJoinSession = async (e) => {
+        if (e) e.preventDefault();
+        const cleanCode = joinInput.trim().toUpperCase();
+        if (cleanCode.length < 4) {
+          setErrorMessage('Wpisz 6-znakowy kod sesji podany przez prowadzącego.');
+          return;
+        }
+        if (!user) {
+          setErrorMessage(authError || 'Trwa łączenie z bazą...');
+          return;
+        }
+        setLoadingAction(true);
+        setErrorMessage('');
+        try {
+          const snap = await getDoc(doc(db, 'sessions', cleanCode));
+          if (!snap.exists()) {
+            setErrorMessage(`Sesja o kodzie „${cleanCode}” nie istnieje.`);
+            setLoadingAction(false);
+            return;
+          }
+          setSessionCode(cleanCode);
+          setRole('participant');
+          safeUpdateUrlParams({ session: cleanCode, mode: null });
+        } catch (err) {
+          setErrorMessage(`Błąd dołączania: ${err.message}`);
+        } finally {
+          setLoadingAction(false);
+        }
+      };
+
+      const handleStartRound = async () => {
+        if (!sessionCode) return;
+        const now = Date.now();
+        await updateDoc(doc(db, 'sessions', sessionCode), {
+          status: 'active',
+          startedAtMillis: now,
+          endsAtMillis: now + ROUND_DURATION_SECONDS * 1000
+        }).catch((err) => setErrorMessage(err.message));
+      };
+
+      const handleForceFinish = async () => {
+        if (!sessionCode) return;
+        await updateDoc(doc(db, 'sessions', sessionCode), {
+          status: 'finished'
+        }).catch((err) => setErrorMessage(err.message));
+      };
+
+      const handleSelectAnswer = async (scenario, answerId) => {
+        if (isRoundFinished || !user || !sessionCode) return;
+        if (myAnswers[scenario.id]) return;
+
+        setMyAnswers((prev) => ({ ...prev, [scenario.id]: answerId }));
+        setActiveDialogScenario(null);
+        setRevealedFeedback({ scenario, chosenAnswerId: answerId });
+
+        try {
+          const pRef = doc(db, 'sessions', sessionCode, 'participants', user.uid);
+          await setDoc(pRef, {
+            answers: { [scenario.id]: answerId },
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        } catch (err) {
+          console.error(err);
+        }
+      };
+
+      const groupReport = useMemo(() => {
+        const participantList = Object.values(participantsMap);
+        const totalParticipants = participantList.length;
+        let totalVotesCast = 0;
+
+        const scenarioStats = SCENARIOS.map((sc) => {
+          const counts = { ok: 0, red_flag: 0, need_context: 0, legal_violation: 0 };
+          let answeredCount = 0;
+
+          participantList.forEach((p) => {
+            const ans = p.answers?.[sc.id];
+            if (ans && counts[ans] !== undefined) {
+              counts[ans] += 1;
+              answeredCount += 1;
+              totalVotesCast += 1;
+            }
+          });
+
+          const unansweredCount = Math.max(0, totalParticipants - answeredCount);
+          const percentages = {
+            ok: answeredCount > 0 ? Math.round((counts.ok / answeredCount) * 100) : 0,
+            red_flag: answeredCount > 0 ? Math.round((counts.red_flag / answeredCount) * 100) : 0,
+            need_context: answeredCount > 0 ? Math.round((counts.need_context / answeredCount) * 100) : 0,
+            legal_violation: answeredCount > 0 ? Math.round((counts.legal_violation / answeredCount) * 100) : 0
+          };
+
+          let topOption = null;
+          let maxCount = 0;
+          ANSWER_OPTIONS.forEach((opt) => {
+            if (counts[opt.id] > maxCount) {
+              maxCount = counts[opt.id];
+              topOption = opt;
+            }
+          });
+
+          let entropy = 0;
+          if (answeredCount > 0) {
+            Object.values(counts).forEach((c) => {
+              if (c > 0) {
+                const p = c / answeredCount;
+                entropy -= p * Math.log2(p);
+              }
+            });
+          }
+
+          const maxPct = answeredCount > 0 ? Math.max(...Object.values(percentages)) : 0;
+          return { scenario: sc, counts, percentages, answeredCount, unansweredCount, topOption, entropy, maxPct };
+        });
+
+        const scenariosWithVotes = scenarioStats.filter((s) => s.answeredCount > 0);
+        const avgCardsPerParticipant = totalParticipants > 0 ? (totalVotesCast / totalParticipants).toFixed(1) : '0.0';
+        const maxPossibleVotes = totalParticipants * SCENARIOS.length;
+        const completionPct = maxPossibleVotes > 0 ? Math.round((totalVotesCast / maxPossibleVotes) * 100) : 0;
+
+        return {
+          totalParticipants,
+          totalVotesCast,
+          scenariosEvaluatedCount: scenariosWithVotes.length,
+          avgCardsPerParticipant,
+          completionPct,
+          scenarioStats,
+          insights: {
+            mostDivided: scenariosWithVotes.length > 0 ? [...scenariosWithVotes].sort((a, b) => b.entropy - a.entropy)[0] : null,
+            highestConsensus: scenariosWithVotes.length > 0 ? [...scenariosWithVotes].sort((a, b) => b.maxPct - a.maxPct)[0] : null,
+            mostNeedContext: scenariosWithVotes.filter((s) => s.counts.need_context > 0).length > 0
+              ? [...scenariosWithVotes].sort((a, b) => b.percentages.need_context - a.percentages.need_context)[0]
+              : null,
+            mostLegalViolation: scenariosWithVotes.filter((s) => s.counts.legal_violation > 0).length > 0
+              ? [...scenariosWithVotes].sort((a, b) => b.percentages.legal_violation - a.percentages.legal_violation)[0]
+              : null
+          }
+        };
+      }, [participantsMap]);
+
+      const joinUrl = useMemo(() => getCleanJoinUrl(sessionCode), [sessionCode]);
+      const qrImageUrl = useMemo(() => {
+        if (!joinUrl.startsWith('http')) return null;
+        return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&bgcolor=18181b&color=fafafa&margin=12&data=${encodeURIComponent(joinUrl)}`;
+      }, [joinUrl]);
+
+      const handleCopyLink = () => {
+        navigator.clipboard?.writeText(joinUrl);
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2000);
+      };
+
+      const resetToHome = () => {
+        setRole('landing');
+        setSessionCode('');
+        setSessionData(null);
+        setParticipantsMap({});
+        setMyAnswers({});
+        setActiveDialogScenario(null);
+        setRevealedFeedback(null);
+        setSpotlightScenarioId(null);
+        setErrorMessage('');
+        safeUpdateUrlParams({ session: null, mode: null });
+      };
+
+      // =========================================================================
+      // EKRAN 1: LANDING (8-BIT RPG EDITION)
+      // =========================================================================
+      if (role === 'landing') {
+        return (
+          <div className="min-h-screen bg-zinc-950 text-zinc-50 flex flex-col justify-between p-5 sm:p-8 relative overflow-hidden">
+            <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 rounded-full bg-pink-600/20 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-lime-500/15 blur-3xl" />
+
+            <header className="max-w-xl mx-auto w-full flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 via-purple-500 to-lime-400 flex items-center justify-center shadow-lg">
+                  <Gamepad2 className="w-6 h-6 text-zinc-950" />
+                </div>
+                <div>
+                  <span className="font-pixel text-sm sm:text-base text-white block">MOBBINGER</span>
+                  <span className="text-[10px] font-pixel text-lime-400">8-BIT OFFICE RPG</span>
+                </div>
+              </div>
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400">
+                UW • 5 min
+              </span>
+            </header>
+
+            <main className="max-w-xl mx-auto w-full my-8 space-y-7 relative z-10">
+              <div className="space-y-3 text-center sm:text-left">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-500/10 border border-pink-500/30 text-pink-300 text-xs font-semibold">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Eksperyment grupowy • Chodź po redakcji i oceniaj!
+                </div>
+                <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight">
+                  Swipe right or{' '}
+                  <span className="bg-gradient-to-r from-pink-500 via-purple-400 to-lime-400 bg-clip-text text-transparent">
+                    spot a red flag.
+                  </span>
+                </h1>
+                <p className="text-zinc-400 text-sm sm:text-base leading-relaxed">
+                  Wciel się w nowego pracownika w 8-bitowej redakcji. Masz <strong className="text-zinc-200">5 minut</strong>, aby przejść się po pokojach, podejść do współpracowników z wykrzyknikami <strong className="text-pink-400">[!]</strong> i ocenić sytuacje razem z całą grupą.
+                </p>
+              </div>
+
+              {(errorMessage || authError) && (
+                <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-sm flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                  <div>{errorMessage || authError}</div>
+                </div>
+              )}
+
+              <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-zinc-800 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold text-lg text-white">Wejdź do biura (Gracz)</h2>
+                  <span className="text-xs text-lime-400 font-semibold">Telefon / Laptop</span>
+                </div>
+                <form onSubmit={handleJoinSession} className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    type="text"
+                    maxLength={8}
+                    value={joinInput}
+                    onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
+                    placeholder="Kod sesji (np. K7P9M2)"
+                    className="flex-1 px-4 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-700 text-white placeholder-zinc-500 font-mono text-lg tracking-widest uppercase focus:outline-none focus:border-pink-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loadingAction}
+                    className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 hover:to-purple-500 text-white font-pixel text-xs shadow-lg shadow-pink-500/25 flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-50"
+                  >
+                    START
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-zinc-900/50 border border-zinc-800/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="space-y-1 text-center sm:text-left">
+                  <div className="font-bold text-zinc-200 flex items-center justify-center sm:justify-start gap-2">
+                    <Presentation className="w-4 h-4 text-purple-400" />
+                    Panel prowadzącego (Projektor)
+                  </div>
+                  <p className="text-xs text-zinc-400">
+                    Utwórz pokój dla 50 studentów, wyświetl kod QR i uruchom zegar 05:00.
+                  </p>
+                </div>
+                <button
+                  onClick={handleCreateSession}
+                  disabled={loadingAction}
+                  className="w-full sm:w-auto shrink-0 px-5 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-bold text-sm transition active:scale-95"
+                >
+                  {loadingAction ? 'Tworzenie...' : 'Nowa sesja'}
+                </button>
+              </div>
+            </main>
+
+            <footer className="max-w-xl mx-auto w-full text-center text-xs text-zinc-500 pb-2">
+              Uniwersytet Warszawski • „To był tylko żart…” • Gra edukacyjna (nie stanowi porady prawnej).
+            </footer>
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // WSPÓLNY RAPORT GRUPY (PO ZAKOŃCZENIU 5 MINUT)
+      // =========================================================================
+      if (isRoundFinished && sessionData) {
+        const activeStat = groupReport.scenarioStats[selectedReportScenarioIndex] || groupReport.scenarioStats[0];
+        const spotlightStat = spotlightScenarioId
+          ? groupReport.scenarioStats.find((s) => s.scenario.id === spotlightScenarioId)
+          : null;
+
+        return (
+          <div className="min-h-screen bg-zinc-950 text-zinc-50 pb-16">
+            <div className="sticky top-0 z-30 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800 px-4 py-3 no-print">
+              <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Gamepad2 className="w-5 h-5 text-pink-500" />
+                  <div>
+                    <div className="font-black text-sm tracking-tight">MOBBINGER 8-BIT • RAPORT GRUPY</div>
+                    <div className="text-xs text-zinc-400 font-mono">Sesja: {sessionCode}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyLink}
+                    className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    {copiedLink ? <Check className="w-3.5 h-3.5 text-lime-400" /> : <Share2 className="w-3.5 h-3.5 text-pink-400" />}
+                    {copiedLink ? 'Skopiowano' : 'Link'}
+                  </button>
+                  <button
+                    onClick={() => window.print()}
+                    className="px-3 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 text-white text-xs font-bold flex items-center gap-1.5"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    PDF
+                  </button>
+                  <button
+                    onClick={resetToHome}
+                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {spotlightStat && (
+              <div className="fixed inset-0 z-50 bg-zinc-950/95 backdrop-blur-lg p-6 sm:p-10 overflow-y-auto flex flex-col justify-between">
+                <div className="max-w-5xl mx-auto w-full space-y-6">
+                  <div className="flex items-center justify-between">
+                    <span className="px-3 py-1 rounded-full bg-purple-500/20 border border-purple-400/40 text-purple-300 text-sm font-bold">
+                      PROJEKTOR • #{spotlightStat.scenario.number} ({spotlightStat.scenario.zone})
+                    </span>
+                    <button
+                      onClick={() => setSpotlightScenarioId(null)}
+                      className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-sm"
+                    >
+                      Zamknij ✕
+                    </button>
+                  </div>
+
+                  <div className="p-8 rounded-3xl bg-zinc-900 border border-zinc-800 space-y-6">
+                    <div className="space-y-2">
+                      <div className="text-sm font-semibold text-pink-400 uppercase tracking-wider">
+                        {spotlightStat.scenario.npcName} • {spotlightStat.scenario.category}
+                      </div>
+                      <h2 className="text-3xl sm:text-4xl font-black text-white">{spotlightStat.scenario.title}</h2>
+                      <p className="text-xl text-zinc-200 leading-relaxed pt-2">{spotlightStat.scenario.situation}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {ANSWER_OPTIONS.map((opt) => {
+                        const pct = spotlightStat.percentages[opt.id];
+                        const cnt = spotlightStat.counts[opt.id];
+                        return (
+                          <div key={opt.id} className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-base">{opt.emoji} {opt.label}</span>
+                              <span className="text-2xl font-black text-white">
+                                {pct}% <span className="text-sm font-normal text-zinc-400">({cnt})</span>
+                              </span>
+                            </div>
+                            <div className="w-full h-3.5 bg-zinc-800 rounded-full overflow-hidden">
+                              <div className={`h-full ${opt.barColor}`} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="p-6 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-2">
+                      <div className="text-xs font-bold uppercase text-purple-300">{spotlightStat.scenario.legalTag}</div>
+                      <p className="text-lg text-zinc-100 leading-relaxed">{spotlightStat.scenario.explanation}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <main className="max-w-4xl mx-auto px-4 pt-8 space-y-10">
+              <section className="p-7 sm:p-10 rounded-3xl bg-gradient-to-br from-pink-600/25 via-purple-900/30 to-zinc-900 border border-pink-500/30 space-y-4 print-card">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-950/70 border border-zinc-700 text-xs font-bold text-lime-400">
+                  <Clock className="w-3.5 h-3.5" />
+                  CZAS MINĄŁ (00:00) • RAPORT GRUPY
+                </div>
+                <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight">
+                  {groupReport.totalParticipants}{' '}
+                  {groupReport.totalParticipants === 1
+                    ? 'osoba'
+                    : groupReport.totalParticipants >= 2 && groupReport.totalParticipants <= 4
+                    ? 'osoby'
+                    : 'osób'}
+                  . 5 minut. Czy wszyscy widzimy te same granice?
+                </h1>
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-4">
+                  <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800">
+                    <div className="text-xs text-zinc-400">Gracze</div>
+                    <div className="text-2xl sm:text-3xl font-black text-white mt-1">{groupReport.totalParticipants}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800">
+                    <div className="text-xs text-zinc-400">Oddane głosy</div>
+                    <div className="text-2xl sm:text-3xl font-black text-pink-400 mt-1">{groupReport.totalVotesCast}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800">
+                    <div className="text-xs text-zinc-400">Odkryte sytuacje</div>
+                    <div className="text-2xl sm:text-3xl font-black text-purple-400 mt-1">
+                      {groupReport.scenariosEvaluatedCount}/{SCENARIOS.length}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800">
+                    <div className="text-xs text-zinc-400">Średnio / osobę</div>
+                    <div className="text-2xl sm:text-3xl font-black text-lime-400 mt-1">{groupReport.avgCardsPerParticipant}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 col-span-2 sm:col-span-1">
+                    <div className="text-xs text-zinc-400">Ukończenie puli</div>
+                    <div className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">{groupReport.completionPct}%</div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Wnioski grupowe */}
+              {groupReport.totalVotesCast > 0 && (
+                <section className="space-y-4">
+                  <h2 className="text-xl sm:text-2xl font-black flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-pink-400" />
+                    Najciekawsze wnioski grupowe
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {groupReport.insights.mostDivided && (
+                      <div className="p-5 rounded-3xl bg-zinc-900 border border-pink-500/30 space-y-1.5 print-card">
+                        <div className="text-xs font-bold uppercase text-pink-400">🔥 Najbardziej podzieliła grupę</div>
+                        <div className="font-bold text-lg text-white">
+                          #{groupReport.insights.mostDivided.scenario.number} {groupReport.insights.mostDivided.scenario.title}
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          Najbardziej wyrównany rozkład głosów ({groupReport.insights.mostDivided.answeredCount} graczy).
+                        </p>
+                      </div>
+                    )}
+                    {groupReport.insights.highestConsensus && (
+                      <div className="p-5 rounded-3xl bg-zinc-900 border border-lime-400/30 space-y-1.5 print-card">
+                        <div className="text-xs font-bold uppercase text-lime-400">🤝 Największa zgodność</div>
+                        <div className="font-bold text-lg text-white">
+                          #{groupReport.insights.highestConsensus.scenario.number} {groupReport.insights.highestConsensus.scenario.title}
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          {groupReport.insights.highestConsensus.maxPct}% głosujących wybrało: {groupReport.insights.highestConsensus.topOption?.label}.
+                        </p>
+                      </div>
+                    )}
+                    {groupReport.insights.mostNeedContext && (
+                      <div className="p-5 rounded-3xl bg-zinc-900 border border-amber-400/30 space-y-1.5 print-card">
+                        <div className="text-xs font-bold uppercase text-amber-300">🟡 Najczęściej „Brak kontekstu”</div>
+                        <div className="font-bold text-lg text-white">
+                          #{groupReport.insights.mostNeedContext.scenario.number} {groupReport.insights.mostNeedContext.scenario.title}
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          {groupReport.insights.mostNeedContext.percentages.need_context}% głosujących potrzebowało dodatkowych danych.
+                        </p>
+                      </div>
+                    )}
+                    {groupReport.insights.mostLegalViolation && (
+                      <div className="p-5 rounded-3xl bg-zinc-900 border border-purple-500/30 space-y-1.5 print-card">
+                        <div className="text-xs font-bold uppercase text-purple-400">🟣 Najczęściej „Naruszenie prawa”</div>
+                        <div className="font-bold text-lg text-white">
+                          #{groupReport.insights.mostLegalViolation.scenario.number} {groupReport.insights.mostLegalViolation.scenario.title}
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          {groupReport.insights.mostLegalViolation.percentages.legal_violation}% głosujących wskazało ryzyko prawne.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Pełna lista wszystkich 15 sytuacji */}
+              <section className="space-y-4">
+                <h2 className="text-xl sm:text-2xl font-black">Wszystkie 15 sytuacji z biura</h2>
+                <div className="space-y-4">
+                  {groupReport.scenarioStats.map((item) => (
+                    <div key={item.scenario.id} className="p-5 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-4 print-card">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-bold text-pink-400">
+                            #{item.scenario.number} • {item.scenario.zone} ({item.scenario.npcName})
+                          </div>
+                          <h3 className="text-lg font-extrabold text-white">{item.scenario.title}</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-400 bg-zinc-950 px-2.5 py-1 rounded-lg border border-zinc-800">
+                            Głosy: {item.answeredCount} | Brak odp.: {item.unansweredCount}
+                          </span>
+                          {role === 'host' && (
+                            <button
+                              onClick={() => setSpotlightScenarioId(item.scenario.id)}
+                              className="px-2.5 py-1 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-bold no-print"
+                            >
+                              Projektor
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-sm text-zinc-300 leading-relaxed">{item.scenario.situation}</p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {ANSWER_OPTIONS.map((opt) => {
+                          const pct = item.percentages[opt.id];
+                          const cnt = item.counts[opt.id];
+                          return (
+                            <div key={opt.id} className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span>{opt.emoji} {opt.shortLabel}</span>
+                                <span className="font-mono">{pct}% ({cnt})</span>
+                              </div>
+                              <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                                <div className={`h-full ${opt.barColor}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="text-xs sm:text-sm text-zinc-300 bg-zinc-950/60 p-3.5 rounded-2xl border border-zinc-800/70">
+                        <strong className="text-purple-300 block mb-1">{item.scenario.legalTag}:</strong>
+                        {item.scenario.explanation}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </main>
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // PANEL PROWADZĄCEGO (HOST VIEW)
+      // =========================================================================
+      if (role === 'host') {
+        const isActive = sessionData?.status === 'active';
+        return (
+          <div className="min-h-screen bg-zinc-950 text-zinc-50 p-5 sm:p-8 flex flex-col justify-between">
+            <header className="max-w-5xl mx-auto w-full flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Gamepad2 className="w-8 h-8 text-pink-500" />
+                <div>
+                  <div className="font-pixel text-sm sm:text-base text-white">MOBBINGER 8-BIT • PROWADZĄCY</div>
+                  <div className="text-xs text-zinc-400">Uniwersytet Warszawski • Widok na projektor</div>
+                </div>
+              </div>
+              <button
+                onClick={resetToHome}
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-400"
+              >
+                Zakończ i wróć
+              </button>
+            </header>
+
+            <main className="max-w-5xl mx-auto w-full my-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+              <div className="lg:col-span-5 p-6 sm:p-8 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col items-center text-center space-y-5 shadow-2xl">
+                <span className="px-3 py-1 rounded-full bg-pink-500/15 border border-pink-500/30 text-pink-300 text-xs font-bold uppercase">
+                  Zeskanuj i wejdź do biura
+                </span>
+                {qrImageUrl && (
+                  <div className="p-3 rounded-2xl bg-zinc-900 border-2 border-zinc-700">
+                    <img src={qrImageUrl} alt="Kod QR" className="w-52 h-52 sm:w-60 sm:h-60 rounded-xl" />
+                  </div>
+                )}
+                <div>
+                  <div className="text-xs text-zinc-400 uppercase tracking-widest">Kod sesji</div>
+                  <div className="text-4xl sm:text-5xl font-black font-mono tracking-widest text-lime-400 mt-1">
+                    {sessionCode}
+                  </div>
+                </div>
+                {joinUrl.startsWith('http') && (
+                  <button
+                    onClick={handleCopyLink}
+                    className="w-full py-2.5 px-4 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-mono text-zinc-300 flex items-center justify-center gap-2 truncate"
+                  >
+                    {copiedLink ? <Check className="w-4 h-4 text-lime-400 shrink-0" /> : <Copy className="w-4 h-4 text-zinc-400 shrink-0" />}
+                    <span className="truncate">{copiedLink ? 'Skopiowano link!' : joinUrl}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="lg:col-span-7 p-6 sm:p-8 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-6 shadow-2xl">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800">
+                    <div className="flex items-center gap-2 text-zinc-400 text-sm">
+                      <Users className="w-4 h-4 text-pink-400" />
+                      Gracze w biurze
+                    </div>
+                    <div className="text-4xl sm:text-5xl font-black text-white mt-2">{groupReport.totalParticipants}</div>
+                  </div>
+                  <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800">
+                    <div className="flex items-center gap-2 text-zinc-400 text-sm">
+                      <BarChart3 className="w-4 h-4 text-purple-400" />
+                      Ocenione sytuacje
+                    </div>
+                    <div className="text-4xl sm:text-5xl font-black text-purple-400 mt-2">{groupReport.totalVotesCast}</div>
+                  </div>
+                </div>
+
+                <div className="p-6 rounded-3xl bg-zinc-950 border border-zinc-800 text-center space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                    {isActive ? 'Pozostały czas rundy' : 'Czas trwania rundy'}
+                  </div>
+                  <div className={`text-6xl sm:text-7xl font-black font-mono ${isActive && remainingSeconds <= 30 ? 'text-rose-500 animate-pulse' : 'text-white'}`}>
+                    {formatTime(remainingSeconds)}
+                  </div>
+                </div>
+
+                {!isActive ? (
+                  <button
+                    onClick={handleStartRound}
+                    className="w-full py-5 rounded-2xl bg-gradient-to-r from-lime-400 via-emerald-400 to-teal-400 text-zinc-950 font-pixel text-sm sm:text-base shadow-xl flex items-center justify-center gap-3 active:scale-95 transition"
+                  >
+                    <Play className="w-5 h-5 fill-zinc-950" />
+                    START GRY (05:00)
+                  </button>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 py-4 px-5 rounded-2xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-sm font-semibold flex items-center justify-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-pink-500 animate-ping" />
+                      Studenci chodzą po 8-bitowym biurze i zbierają sytuacje
+                    </div>
+                    <button
+                      onClick={handleForceFinish}
+                      className="py-4 px-5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold"
+                    >
+                      Zakończ wcześniej
+                    </button>
+                  </div>
+                )}
+              </div>
+            </main>
+
+            <footer className="max-w-5xl mx-auto w-full text-center text-xs text-zinc-500">
+              Po 00:00 wszyscy automatycznie zobaczą wspólny raport grupy.
+            </footer>
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // POCZEKALNIA UCZESTNIKA (LOBBY)
+      // =========================================================================
+      if (role === 'participant' && (!sessionData || sessionData.status === 'lobby')) {
+        return (
+          <div className="min-h-screen bg-zinc-950 text-zinc-50 p-5 flex flex-col justify-between">
+            <header className="max-w-md mx-auto w-full flex items-center justify-between pt-2">
+              <span className="font-pixel text-xs text-pink-400">MOBBINGER 8-BIT</span>
+              <span className="text-xs font-mono px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-lime-400">
+                Sesja: {sessionCode}
+              </span>
+            </header>
+
+            <main className="max-w-md mx-auto w-full my-auto space-y-6 text-center">
+              <div className="w-20 h-20 mx-auto rounded-3xl bg-pink-500/15 border-2 border-pink-500/40 flex items-center justify-center">
+                <Gamepad2 className="w-10 h-10 text-pink-400 animate-bounce" />
+              </div>
+
+              <div className="space-y-2">
+                <h1 className="text-2xl sm:text-3xl font-black">Czekasz przed wejściem do redakcji!</h1>
+                <p className="text-zinc-400 text-sm">
+                  Gdy prowadzący naciśnie <strong className="text-white">START</strong>, otworzą się drzwi do 8-bitowego biura. Dotykaj postaci z <strong className="text-pink-400">[!]</strong> na mapie (lub użyj strzałek), aby poznać sytuacje i je ocenić.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 inline-flex items-center gap-3">
+                <span className="w-2.5 h-2.5 rounded-full bg-lime-400 animate-ping" />
+                <span className="text-sm font-semibold text-zinc-200">
+                  Graczy w poczekalni: <strong className="text-white">{groupReport.totalParticipants}</strong>
+                </span>
+              </div>
+            </main>
+
+            <footer className="max-w-md mx-auto w-full text-center pb-2">
+              <button onClick={resetToHome} className="text-xs text-zinc-500 hover:text-zinc-300">
+                Zmień kod sesji
+              </button>
+            </footer>
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // AKTYWNA GRA 8-BIT RPG (DLA UCZESTNIKA)
+      // =========================================================================
+      return (
+        <Office8BitGame
+          myAnswers={myAnswers}
+          remainingSeconds={remainingSeconds}
+          sessionCode={sessionCode}
+          activeDialogScenario={activeDialogScenario}
+          setActiveDialogScenario={setActiveDialogScenario}
+          revealedFeedback={revealedFeedback}
+          onSelectAnswer={handleSelectAnswer}
+          onCloseFeedback={() => setRevealedFeedback(null)}
+        />
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
